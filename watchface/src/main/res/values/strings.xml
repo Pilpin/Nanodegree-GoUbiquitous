@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">Sunshine</string>
+    <string name="fit_am">AM</string>
+    <string name="fit_pm">PM</string>
+</resources>
