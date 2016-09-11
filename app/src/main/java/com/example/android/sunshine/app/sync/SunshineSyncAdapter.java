@@ -24,6 +24,8 @@ import android.os.Build;
 import android.os.Bundle;
 import android.preference.PreferenceManager;
 import android.support.annotation.IntDef;
+import android.support.annotation.NonNull;
+import android.support.annotation.Nullable;
 import android.support.v4.app.NotificationCompat;
 import android.support.v4.app.TaskStackBuilder;
 import android.text.format.Time;
@@ -36,6 +38,15 @@ import com.example.android.sunshine.app.R;
 import com.example.android.sunshine.app.Utility;
 import com.example.android.sunshine.app.data.WeatherContract;
 import com.example.android.sunshine.app.muzei.WeatherMuzeiSource;
+import com.google.android.gms.common.ConnectionResult;
+import com.google.android.gms.common.api.GoogleApiClient;
+import com.google.android.gms.common.api.PendingResult;
+import com.google.android.gms.common.api.ResultCallback;
+import com.google.android.gms.wearable.DataApi;
+import com.google.android.gms.wearable.DataEventBuffer;
+import com.google.android.gms.wearable.PutDataMapRequest;
+import com.google.android.gms.wearable.PutDataRequest;
+import com.google.android.gms.wearable.Wearable;
 
 import org.json.JSONArray;
 import org.json.JSONException;
@@ -51,8 +62,9 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 import java.util.Vector;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
 
-public class SunshineSyncAdapter extends AbstractThreadedSyncAdapter {
+public class SunshineSyncAdapter extends AbstractThreadedSyncAdapter implements GoogleApiClient.ConnectionCallbacks, GoogleApiClient.OnConnectionFailedListener {
     public final String LOG_TAG = SunshineSyncAdapter.class.getSimpleName();
     public static final String ACTION_DATA_UPDATED =
             "com.example.android.sunshine.app.ACTION_DATA_UPDATED";
@@ -62,6 +74,12 @@ public class SunshineSyncAdapter extends AbstractThreadedSyncAdapter {
     public static final int SYNC_FLEXTIME = SYNC_INTERVAL/3;
     private static final long DAY_IN_MILLIS = 1000 * 60 * 60 * 24;
     private static final int WEATHER_NOTIFICATION_ID = 3004;
+
+    public static final String PATH = "/weather";
+    public static final String WEATHER_ID = "weather_id";
+    public static final String MAX_TMP = "max_tmp";
+    public static final String MIN_TMP = "min_tmp";
+    private GoogleApiClient mGoogleApiClient;
 
 
     private static final String[] NOTIFY_WEATHER_PROJECTION = new String[] {
@@ -347,6 +365,7 @@ public class SunshineSyncAdapter extends AbstractThreadedSyncAdapter {
                 updateWidgets();
                 updateMuzei();
                 notifyWeather();
+                notifyWear();
             }
             Log.d(LOG_TAG, "Sync Complete. " + cVVector.size() + " Inserted");
             setLocationStatus(getContext(), LOCATION_STATUS_OK);
@@ -481,6 +500,72 @@ public class SunshineSyncAdapter extends AbstractThreadedSyncAdapter {
                 cursor.close();
             }
         }
+    }
+
+    private void notifyWear() {
+        Context context = getContext();
+
+        String locationQuery = Utility.getPreferredLocation(context);
+        Uri weatherUri = WeatherContract.WeatherEntry.buildWeatherLocationWithDate(locationQuery, System.currentTimeMillis());
+
+        // we'll query our contentProvider, as always
+        Cursor cursor = context.getContentResolver().query(weatherUri, NOTIFY_WEATHER_PROJECTION, null, null, null);
+
+        mGoogleApiClient = new GoogleApiClient.Builder(context)
+                .addConnectionCallbacks(this)
+                .addOnConnectionFailedListener(this)
+                .addApi(Wearable.API)
+                .build();
+
+        if (cursor.moveToFirst()) {
+            int weatherId = cursor.getInt(INDEX_WEATHER_ID);
+            double high = cursor.getDouble(INDEX_MAX_TEMP);
+            double low = cursor.getDouble(INDEX_MIN_TEMP);
+
+            ConnectionResult connectionResult = mGoogleApiClient.blockingConnect(30, TimeUnit.SECONDS);
+            if (!connectionResult.isSuccess()) {
+                Log.e(LOG_TAG, "Google API Connection Error");
+                return;
+            }
+
+            PutDataMapRequest putDataMapReq = PutDataMapRequest.create(PATH);
+            putDataMapReq.getDataMap().putInt(WEATHER_ID, weatherId);
+            putDataMapReq.getDataMap().putDouble(MAX_TMP, high);
+            putDataMapReq.getDataMap().putDouble(MIN_TMP, low);
+            PutDataRequest putDataReq = putDataMapReq.asPutDataRequest();
+            Log.i(LOG_TAG, putDataReq.toString());
+            Wearable.DataApi.putDataItem(mGoogleApiClient, putDataReq).setResultCallback(new ResultCallback<DataApi.DataItemResult>() {
+                @Override
+                public void onResult(DataApi.DataItemResult dataItemResult) {
+                    if (dataItemResult.getStatus().isSuccess()) {
+                        Log.e("Watch Log", "Successfully sent weather info");
+                    }
+                    else {
+                        Log.e("Watch Log", "Failed to send weather info");
+                    }
+                    mGoogleApiClient.disconnect();
+                }
+            });
+
+        }
+        cursor.close();
+        mGoogleApiClient.disconnect();
+    }
+
+    @Override
+    public void onConnected(@Nullable Bundle bundle) {
+
+    }
+
+    @Override
+    public void onConnectionSuspended(int i) {
+
+    }
+
+    @Override
+    public void onConnectionFailed(@NonNull ConnectionResult connectionResult) {
+        Log.e(LOG_TAG, connectionResult.toString());
+
     }
 
     /**
