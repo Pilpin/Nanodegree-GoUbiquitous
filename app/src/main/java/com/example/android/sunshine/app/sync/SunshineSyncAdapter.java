@@ -519,8 +519,8 @@ public class SunshineSyncAdapter extends AbstractThreadedSyncAdapter implements 
 
         if (cursor.moveToFirst()) {
             int weatherId = cursor.getInt(INDEX_WEATHER_ID);
-            double high = cursor.getDouble(INDEX_MAX_TEMP);
-            double low = cursor.getDouble(INDEX_MIN_TEMP);
+            float high = cursor.getFloat(INDEX_MAX_TEMP);
+            float low = cursor.getFloat(INDEX_MIN_TEMP);
 
             ConnectionResult connectionResult = mGoogleApiClient.blockingConnect(30, TimeUnit.SECONDS);
             if (!connectionResult.isSuccess()) {
@@ -529,9 +529,9 @@ public class SunshineSyncAdapter extends AbstractThreadedSyncAdapter implements 
             }
 
             PutDataMapRequest putDataMapReq = PutDataMapRequest.create(PATH);
-            putDataMapReq.getDataMap().putInt(WEATHER_ID, weatherId);
-            putDataMapReq.getDataMap().putDouble(MAX_TMP, high);
-            putDataMapReq.getDataMap().putDouble(MIN_TMP, low);
+            putDataMapReq.getDataMap().putLong(WEATHER_ID, weatherId);
+            putDataMapReq.getDataMap().putInt(MAX_TMP, Math.round(high));
+            putDataMapReq.getDataMap().putInt(MIN_TMP, Math.round(low));
             PutDataRequest putDataReq = putDataMapReq.asPutDataRequest();
             Log.i(LOG_TAG, putDataReq.toString());
             Wearable.DataApi.putDataItem(mGoogleApiClient, putDataReq).setResultCallback(new ResultCallback<DataApi.DataItemResult>() {
