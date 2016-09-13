@@ -42,6 +42,9 @@ import com.google.android.gms.common.ConnectionResult;
 import com.google.android.gms.common.api.GoogleApiClient;
 import com.google.android.gms.common.api.PendingResult;
 import com.google.android.gms.common.api.ResultCallback;
+import com.google.android.gms.wearable.Asset;
+import com.google.android.gms.wearable.CapabilityApi;
+import com.google.android.gms.wearable.CapabilityInfo;
 import com.google.android.gms.wearable.DataApi;
 import com.google.android.gms.wearable.DataEventBuffer;
 import com.google.android.gms.wearable.PutDataMapRequest;
@@ -53,6 +56,7 @@ import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.io.BufferedReader;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
@@ -60,6 +64,10 @@ import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.util.Collection;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
 import java.util.Vector;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
@@ -76,7 +84,8 @@ public class SunshineSyncAdapter extends AbstractThreadedSyncAdapter implements 
     private static final int WEATHER_NOTIFICATION_ID = 3004;
 
     public static final String PATH = "/weather";
-    public static final String WEATHER_ID = "weather_id";
+    public static final String WEATHER_ICON_COLOR = "weather";
+    public static final String WEATHER_ICON_BW = "weather_bw";
     public static final String MAX_TMP = "max_tmp";
     public static final String MIN_TMP = "min_tmp";
     private GoogleApiClient mGoogleApiClient;
@@ -516,40 +525,52 @@ public class SunshineSyncAdapter extends AbstractThreadedSyncAdapter implements 
                 .addOnConnectionFailedListener(this)
                 .addApi(Wearable.API)
                 .build();
+        if(cursor != null) {
+            if (cursor.moveToFirst()) {
+                int weatherId = cursor.getInt(INDEX_WEATHER_ID);
+                float high = cursor.getFloat(INDEX_MAX_TEMP);
+                float low = cursor.getFloat(INDEX_MIN_TEMP);
 
-        if (cursor.moveToFirst()) {
-            int weatherId = cursor.getInt(INDEX_WEATHER_ID);
-            float high = cursor.getFloat(INDEX_MAX_TEMP);
-            float low = cursor.getFloat(INDEX_MIN_TEMP);
-
-            ConnectionResult connectionResult = mGoogleApiClient.blockingConnect(30, TimeUnit.SECONDS);
-            if (!connectionResult.isSuccess()) {
-                Log.e(LOG_TAG, "Google API Connection Error");
-                return;
-            }
-
-            PutDataMapRequest putDataMapReq = PutDataMapRequest.create(PATH);
-            putDataMapReq.getDataMap().putLong(WEATHER_ID, weatherId);
-            putDataMapReq.getDataMap().putInt(MAX_TMP, Math.round(high));
-            putDataMapReq.getDataMap().putInt(MIN_TMP, Math.round(low));
-            PutDataRequest putDataReq = putDataMapReq.asPutDataRequest();
-            Log.i(LOG_TAG, putDataReq.toString());
-            Wearable.DataApi.putDataItem(mGoogleApiClient, putDataReq).setResultCallback(new ResultCallback<DataApi.DataItemResult>() {
-                @Override
-                public void onResult(DataApi.DataItemResult dataItemResult) {
-                    if (dataItemResult.getStatus().isSuccess()) {
-                        Log.e("Watch Log", "Successfully sent weather info");
-                    }
-                    else {
-                        Log.e("Watch Log", "Failed to send weather info");
-                    }
-                    mGoogleApiClient.disconnect();
+                ConnectionResult connectionResult = mGoogleApiClient.blockingConnect(30, TimeUnit.SECONDS);
+                if (!connectionResult.isSuccess()) {
+                    Log.e(LOG_TAG, "Google API Connection Error");
+                    return;
                 }
-            });
 
+                Bitmap colorBitmap = BitmapFactory.decodeResource(context.getResources(), Utility.getIconResourceForWeatherCondition(weatherId));
+                Bitmap bwBitmap = BitmapFactory.decodeResource(context.getResources(), Utility.getBWIconResourceForWeatherCondition(weatherId));
+                Asset colorAsset = createAssetFromBitmap(colorBitmap);
+                Asset bwAsset = createAssetFromBitmap(bwBitmap);
+
+                PutDataMapRequest putDataMapReq = PutDataMapRequest.create(PATH);
+                putDataMapReq.getDataMap().putAsset(WEATHER_ICON_COLOR, colorAsset);
+                putDataMapReq.getDataMap().putAsset(WEATHER_ICON_BW, bwAsset);
+                putDataMapReq.getDataMap().putInt(MAX_TMP, Math.round(high));
+                putDataMapReq.getDataMap().putInt(MIN_TMP, Math.round(low));
+                PutDataRequest putDataReq = putDataMapReq.asPutDataRequest();
+                Log.i(LOG_TAG, putDataReq.toString());
+                Wearable.DataApi.putDataItem(mGoogleApiClient, putDataReq).setResultCallback(new ResultCallback<DataApi.DataItemResult>() {
+                    @Override
+                    public void onResult(DataApi.DataItemResult dataItemResult) {
+                        if (dataItemResult.getStatus().isSuccess()) {
+                            Log.e("Watch Log", "Successfully sent weather info");
+                        } else {
+                            Log.e("Watch Log", "Failed to send weather info");
+                        }
+                        mGoogleApiClient.disconnect();
+                    }
+                });
+
+            }
+            cursor.close();
+            mGoogleApiClient.disconnect();
         }
-        cursor.close();
-        mGoogleApiClient.disconnect();
+    }
+
+    private static Asset createAssetFromBitmap(Bitmap bitmap) {
+        final ByteArrayOutputStream byteStream = new ByteArrayOutputStream();
+        bitmap.compress(Bitmap.CompressFormat.PNG, 100, byteStream);
+        return Asset.createFromBytes(byteStream.toByteArray());
     }
 
     @Override
